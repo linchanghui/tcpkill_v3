@@ -1,5 +1,5 @@
 .PHONY: clean
-LDFLAGS = -lpcap -lnet
+LDFLAGS = -lpcap -lnet -lpthread
 CFLAGS = -Wall
 
 tcpkill: pcaputil.o tcpkill.c
