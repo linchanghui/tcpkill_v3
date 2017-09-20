@@ -120,7 +120,7 @@ int build_syn(u_char *user, u_short sport, u_short dport, char *srchost, char *d
     u_char  options[12] = {1,1,8,10,0,32,230,114,0,32,230,114};
 	libnet_clear_packet(l);
     //libnet_seed_prand(l); if seq num bigger than real seq num maybe the packet will be queued wait seq num increase to fake seq num
-    //libnet_build_tcp_options(options, 12, l, 0);
+    //libnet_build_tcp_options(options, 12, l, 0); unnecssary to set tcp options
 
     libnet_build_tcp(dport, sport,
             seq, ack, TH_FIN | TH_ACK, 350, 0, 0, LIBNET_TCP_H,
@@ -137,6 +137,24 @@ int build_syn(u_char *user, u_short sport, u_short dport, char *srchost, char *d
     } else {
         printf("send succ\n");
     }
+	//send to other side to get both side ack
+	libnet_clear_packet(l);
+
+	libnet_build_tcp(sport, dport,
+					 seq, ack, TH_FIN | TH_ACK, 350, 0, 0, LIBNET_TCP_H,
+					 NULL, 0, l, 0);
+
+	libnet_build_ipv4(LIBNET_IPV4_H + LIBNET_TCP_H, 0,
+					  libnet_get_prand(LIBNET_PRu16), 0, 64,
+					  IPPROTO_TCP, 0, ip_src.s_addr,
+					  ip_dst.s_addr, NULL, 0, l, 0);
+
+	if (libnet_write(l) < 0) {
+		printf("send failed.\n");
+		warn("write");
+	} else {
+		printf("send succ\n");
+	}
     return 0;
 }
 
