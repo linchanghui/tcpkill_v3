@@ -17,12 +17,105 @@
 #include <err.h>
 #include <libnet.h>
 #include <pcap.h>
-#include <pthread.h>
+#include <arpa/inet.h>
 
 #include "pcaputil.h"
 #include "version.h"
 
 #define DEFAULT_SEVERITY    3
+#define CMD 'netstat |grep ESTABLISHED|awk -F \' \' \'{print $4}\'|grep %d:%d'
+#define _PATH_PROCNET_TCP "/proc/net/tcp"
+FILE *procinfo;
+
+enum {
+    TCP_ESTABLISHED = 1,
+    TCP_SYN_SENT,
+    TCP_SYN_RECV,
+    TCP_FIN_WAIT1,
+    TCP_FIN_WAIT2,
+    TCP_TIME_WAIT,
+    TCP_CLOSE,
+    TCP_CLOSE_WAIT,
+    TCP_LAST_ACK,
+    TCP_LISTEN,
+    TCP_CLOSING                 /* now a valid state */
+};
+
+
+static int tcp_do_one(int lnr, const char *line, char *src, char *dst, int sport, int dport) {
+    unsigned long rxq, txq, time_len, retr, inode;
+    int num, local_port, rem_port, d, state, uid, timer_run, timeout;
+    char rem_addr[128], local_addr[128], more[512];
+    char local_addr2[15], rem_addr2[15]; //like xxx.xxx.xxx.xxx
+
+#if HAVE_AFINET6
+    struct sockaddr_in6 localaddr, remaddr;
+    char addr6[INET6_ADDRSTRLEN];
+    struct in6_addr in6;
+    extern struct aftype inet6_aftype;
+#else
+    struct sockaddr_in localaddr, remaddr;
+#endif
+
+    if (lnr == 0)
+        return 0;
+
+    num = sscanf(line,
+                 "%d: %64[0-9A-Fa-f]:%X %64[0-9A-Fa-f]:%X %X %lX:%lX %X:%lX %lX %d %d %ld %512s\n",
+                 &d, local_addr, &local_port, rem_addr, &rem_port, &state,
+                 &txq, &rxq, &timer_run, &time_len, &retr, &uid, &timeout, &inode, more);
+    if (strlen(local_addr) > 8) {
+        //ipv6 no support
+    } else if (strlen(local_addr) == 8){
+        sscanf(local_addr, "%X",
+               &((struct sockaddr_in *) &localaddr)->sin_addr.s_addr);
+        sscanf(rem_addr, "%X",
+               &((struct sockaddr_in *) &remaddr)->sin_addr.s_addr);
+        ((struct sockaddr *) &localaddr)->sa_family = AF_INET;
+        ((struct sockaddr *) &remaddr)->sa_family = AF_INET;
+
+    } else {
+        //todo log error info
+    }
+
+
+    if (num < 11) {
+        fprintf(stderr, "warning, got bogus tcp line.\n");
+        return 0;
+    }
+
+    if (state != TCP_ESTABLISHED) return 0;
+    //not sure the localhost pattern 0.0.0.0/127.0.0.1
+    if (strcmp(src, inet_ntoa(((struct sockaddr_in *) &remaddr)->sin_addr)) == 0
+            && strcmp(dst, inet_ntoa(((struct sockaddr_in *) &localaddr)->sin_addr)) == 0
+            && rem_port == sport
+            && local_port == dport) {
+        return 1;
+    }
+
+    return 0;
+}
+
+static int tcp_info(char *src, char *dst, int sport, int dport) {
+    char buffer[8192];
+    int rc = 0;
+    int lnr = 0;
+    procinfo = fopen(_PATH_PROCNET_TCP, "r"); //todo why '/proc/net/tcp' why wrong
+    if (procinfo == NULL) {
+        if (errno != ENOENT) {
+            printf("fopen failed, errno = %d\n", errno);
+            perror((_PATH_PROCNET_TCP));
+            return -1;
+        }
+    } else {
+        do {
+            if (fgets(buffer, sizeof(buffer), procinfo))
+                if ((tcp_do_one)(lnr++, buffer, src, dst, sport, dport)) return 1;
+        } while (!feof(procinfo));
+        fclose(procinfo);
+    }
+
+}
 
 int Opt_severity = DEFAULT_SEVERITY;
 int pcap_off;
@@ -45,6 +138,11 @@ usage(void) {
     fprintf(stderr, "Version: " VERSION "\n"
             "Usage: tcpkill [-i interface] [-m max kills] [-1..9] expression\n");
     exit(1);
+}
+
+
+int connectionExisted(char *src, char *dst, int sport, int dport) {
+    return tcp_info(src, dst, sport, dport);
 }
 
 static void
@@ -103,7 +201,20 @@ tcp_kill_cb(u_char *user, const struct pcap_pkthdr *pcap, const u_char *pkt) {
     if (both_side_done == 0) {
         both_side_done = tcp->th_dport;
     } else if (tcp->th_dport != both_side_done) {
-        pcap_breakloop(pd);
+
+        //check whether tcp is broken
+        if (!connectionExisted(inet_ntoa(ip->ip_dst),
+                              inet_ntoa(ip->ip_src),
+                              tcp->th_sport,
+                              tcp->th_dport) &&
+                !connectionExisted(inet_ntoa(ip->ip_src),
+                                   inet_ntoa(ip->ip_dst),
+                                   tcp->th_dport,
+                                   tcp->th_sport)) {
+            pcap_breakloop(pd);
+        }
+        //Exceptions case ,reset the flag
+        both_side_done = 0;
     }
 }
 
@@ -169,21 +280,6 @@ void *trigger(void *data) {
     return NULL;
 }
 
-int split(char *in, int *port, char **host) {
-    int i = 0;
-    while (in[i] && in[i] != ':') {
-        i++;
-    }
-    if (in[i] == 0) {
-        warn("error in addr.");
-        exit(1);
-    }
-    in[i] = 0;
-    *port = atoi(in + i + 1);
-    printf("%d\n", *port);
-    *host = in;
-    return 0;
-}
 
 int
 main(int argc, char *argv[]) {
@@ -192,47 +288,31 @@ main(int argc, char *argv[]) {
     int c;
     char *p, *intf, *filter, ebuf[PCAP_ERRBUF_SIZE];
     char libnet_ebuf[LIBNET_ERRBUF_SIZE];
-    int single = 0;
     char *src = NULL, *dst = NULL;
-    int sport, dport;
+    int sport = -1, dport = -1;
     libnet_t *l;
     libnet_t *l2;
 
     both_side_done = 0;
     intf = NULL;
 
-    while ((c = getopt(argc, argv, "i:m:s:d:123456789h?V")) != -1) {
+    while ((c = getopt(argc, argv, "i:t:s:d:k:")) != -1) {
         switch (c) {
             case 'i':
                 intf = optarg;
                 break;
-            case 'm':
-                Opt_max_kill = atoi(optarg);
+            case 't':
+                sport = atoi(optarg);
                 break;
             case 's':
-                split(optarg, &sport, &src);
-                single = 1;
+                src = optarg;
+                break;
+            case 'k':
+                dport = atoi(optarg);
                 break;
             case 'd':
-                split(optarg, &dport, &dst);
-                single = 1;
-                break;
-            case '0':
-            case '1':
-            case '2':
-            case '3':
-            case '4':
-            case '5':
-            case '6':
-            case '7':
-            case '8':
-            case '9':
-                p = argv[optind - 1];
-                if (p[0] == '-' && p[1] == c && p[2] == '\0')
-                    Opt_severity = atoi(++p);
-                else
-                    Opt_severity = atoi(argv[optind] + 1);
-                break;
+                dst = optarg;
+                break;;
             default:
                 usage();
                 break;
@@ -242,22 +322,23 @@ main(int argc, char *argv[]) {
         errx(1, "%s", ebuf);
     }
 
-    argc -= optind;
-    argv += optind;
-
-    if (argc == 0 && single == 0)
+    if (argc == 0) {
         usage();
-
-    if (single) {
-        static char f[1024];
-        sprintf(f,
-                "(src port %d and dst port %d and src host %s and dst host %s) or (src port %d and dst port %d and src host %s and dst host %s)",
-                sport, dport, src, dst, dport, sport, dst, src);
-        printf("%s\n", f);
-        filter = f;
-    } else {
-        filter = copy_argv(argv);
+        return 0;
     }
+
+    //check connection ESTABLISHED
+    if (!connectionExisted(src, dst, sport, dport)) {
+        //log record not found
+        return 0;
+    }
+
+    static char f[1024];
+    sprintf(f,
+            "(src port %d and dst port %d and src host %s and dst host %s) or (src port %d and dst port %d and src host %s and dst host %s)",
+            sport, dport, src, dst, dport, sport, dst, src);
+    printf("%s\n", f);
+    filter = f;
 
     if ((pd = pcap_init(intf, filter, 64)) == NULL)
         errx(1, "couldn't initialize sniffing");
