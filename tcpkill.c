@@ -16,7 +16,6 @@
 #include <string.h>
 #include <err.h>
 #include <libnet.h>
-#include <pcap.h>
 #include <arpa/inet.h>
 
 #include "pcaputil.h"
@@ -24,7 +23,7 @@
 
 #define DEFAULT_SEVERITY    3
 #define CMD 'netstat |grep ESTABLISHED|awk -F \' \' \'{print $4}\'|grep %d:%d'
-#define _PATH_PROCNET_TCP "/proc/net/tcp"
+
 FILE *procinfo;
 
 enum {
