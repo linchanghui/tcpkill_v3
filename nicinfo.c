@@ -143,53 +143,7 @@ static int get_dev_fields(char *bp, struct interface *ife) {
 }
 
 
-static int if_readconf(void) {
-    int numreqs = 30;
-    struct ifconf ifc;
-    struct ifreq *ifr;
-    int n, err = -1;
-    int skfd;
 
-    /* SIOCGIFCONF currently seems to only work properly on AF_INET sockets
-       (as of 2.1.128) */
-    skfd = get_socket_for_af(AF_INET);
-    if (skfd < 0) {
-        fprintf(stderr, "warning: no inet socket available: %s\n",
-                strerror(errno));
-        /* Try to soldier on with whatever socket we can get hold of.  */
-        skfd = sockets_open(0);
-        if (skfd < 0)
-            return -1;
-    }
-
-    ifc.ifc_buf = NULL;
-    for (; ;) {
-        ifc.ifc_len = sizeof(struct ifreq) * numreqs;
-        ifc.ifc_buf = xrealloc(ifc.ifc_buf, ifc.ifc_len);
-
-        if (ioctl(skfd, SIOCGIFCONF, &ifc) < 0) {
-            perror("SIOCGIFCONF");
-            goto out;
-        }
-        if (ifc.ifc_len == sizeof(struct ifreq) * numreqs) {
-            /* assume it overflowed and try again */
-            numreqs += 10;
-            continue;
-        }
-        break;
-    }
-
-    ifr = ifc.ifc_req;
-    for (n = 0; n < ifc.ifc_len; n += sizeof(struct ifreq)) {
-        add_interface(ifr->ifr_name);
-        ifr++;
-    }
-    err = 0;
-
-    out:
-    free(ifc.ifc_buf);
-    return err;
-}
 
 
 static int if_readlist_proc(char *target) {
@@ -210,7 +164,8 @@ static int if_readlist_proc(char *target) {
     if (!fh) {
         fprintf(stderr, "Warning: cannot open %s (%s). Limited output.\n",
                 _PATH_PROCNET_DEV, strerror(errno));
-        return if_readconf();
+        //return if_readconf();
+        return -1;
     }
     fgets(buf, sizeof buf, fh); /* eat line */
     fgets(buf, sizeof buf, fh);
@@ -226,7 +181,10 @@ static int if_readlist_proc(char *target) {
         if (target && !strcmp(target, name))
             break;
     }
-    for ( ;NULL != ife; ife = ife->prev) {
+    //go to head
+    for (;NULL != ife && NULL != ife->prev; ife = ife->prev);
+    //from head to end
+    for ( ;NULL != ife; ife = ife->next) {
         fd = socket(AF_INET, SOCK_DGRAM, 0);
 
         //Type of address to retrieve - IPv4 IP address
@@ -268,7 +226,6 @@ int
 main(int argc, char *argv[]) {
     int rc = -1;
     if_readlist_proc(NULL);
-//    if_readconf();
     return rc;
 }
 

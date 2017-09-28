@@ -27,63 +27,63 @@
 #endif
 
 #include "pcaputil.h"
-#include "net-support.h"
+//#include "net-support.h"
 
 
 static short sVafinit = 0;
 
-extern struct aftype unspec_aftype;
-extern struct aftype unix_aftype;
-extern struct aftype inet_aftype;
-extern struct aftype inet6_aftype;
-extern struct aftype ax25_aftype;
-extern struct aftype netrom_aftype;
-extern struct aftype ipx_aftype;
-extern struct aftype ddp_aftype;
-extern struct aftype ec_aftype;
-extern struct aftype x25_aftype;
-extern struct aftype rose_aftype;
-extern struct aftype ash_aftype;
+//extern struct aftype unspec_aftype;
+//extern struct aftype unix_aftype;
+//extern struct aftype inet_aftype;
+//extern struct aftype inet6_aftype;
+//extern struct aftype ax25_aftype;
+//extern struct aftype netrom_aftype;
+//extern struct aftype ipx_aftype;
+//extern struct aftype ddp_aftype;
+//extern struct aftype ec_aftype;
+//extern struct aftype x25_aftype;
+//extern struct aftype rose_aftype;
+//extern struct aftype ash_aftype;
 
 
-struct aftype *aftypes[] =
-		{
-#if HAVE_AFUNIX
-				&unix_aftype,
-#endif
-#if HAVE_AFINET
-				&inet_aftype,
-#endif
-#if HAVE_AFINET6
-				&inet6_aftype,
-#endif
-#if HAVE_AFAX25
-				&ax25_aftype,
-#endif
-#if HAVE_AFNETROM
-				&netrom_aftype,
-#endif
-#if HAVE_AFROSE
-				&rose_aftype,
-#endif
-#if HAVE_AFIPX
-				&ipx_aftype,
-#endif
-#if HAVE_AFATALK
-				&ddp_aftype,
-#endif
-#if HAVE_AFECONET
-				&ec_aftype,
-#endif
-#if HAVE_AFASH
-				&ash_aftype,
-#endif
-#if HAVE_AFX25
-				&x25_aftype,
-#endif
-				&unspec_aftype,
-				NULL
-		};
+//struct aftype *aftypes[] =
+//		{
+//#if HAVE_AFUNIX
+//				&unix_aftype,
+//#endif
+//#if HAVE_AFINET
+//				&inet_aftype,
+//#endif
+//#if HAVE_AFINET6
+//				&inet6_aftype,
+//#endif
+//#if HAVE_AFAX25
+//				&ax25_aftype,
+//#endif
+//#if HAVE_AFNETROM
+//				&netrom_aftype,
+//#endif
+//#if HAVE_AFROSE
+//				&rose_aftype,
+//#endif
+//#if HAVE_AFIPX
+//				&ipx_aftype,
+//#endif
+//#if HAVE_AFATALK
+//				&ddp_aftype,
+//#endif
+//#if HAVE_AFECONET
+//				&ec_aftype,
+//#endif
+//#if HAVE_AFASH
+//				&ash_aftype,
+//#endif
+//#if HAVE_AFX25
+//				&x25_aftype,
+//#endif
+//				&unspec_aftype,
+//				NULL
+//		};
 #ifdef BSD
 static int
 bpf_immediate(int fd, int on)
@@ -240,6 +240,13 @@ void *xrealloc(void *oldp, size_t sz)
 	return p;
 }
 
+void *xmalloc(unsigned sz)
+{
+	void *p = calloc(sz,1);
+	if (!p) {};
+	return p;
+}
+
 int kernel_version(void)
 {
 	struct utsname uts;
@@ -252,115 +259,110 @@ int kernel_version(void)
 	return KRELEASE(major, minor, patch);
 }
 
-void afinit()
-{
-	unspec_aftype.title = "UNSPEC";
-#if HAVE_AFUNIX
-	unix_aftype.title = "UNIX Domain";
-#endif
-#if HAVE_AFINET
-	inet_aftype.title = "DARPA Internet";
-#endif
-#if HAVE_AFINET6
-	inet6_aftype.title = "IPv6";
-#endif
-#if HAVE_AFAX25
-	ax25_aftype.title = "AMPR AX.25";
-#endif
-#if HAVE_AFNETROM
-	netrom_aftype.title = "AMPR NET/ROM";
-#endif
-#if HAVE_AFIPX
-	ipx_aftype.title = "Novell IPX";
-#endif
-#if HAVE_AFATALK
-	ddp_aftype.title = "Appletalk DDP";
-#endif
-#if HAVE_AFECONET
-	ec_aftype.title = "Econet";
-#endif
-#if HAVE_AFX25
-	x25_aftype.title = "CCITT X.25";
-#endif
-#if HAVE_AFROSE
-	rose_aftype.title = "AMPR ROSE";
-#endif
-#if HAVE_AFASH
-	ash_aftype.title = "Ash";
-#endif
-	sVafinit = 1;
-}
-
-void *xmalloc(unsigned sz)
-{
-	void *p = calloc(sz,1);
-	if (!p) {};
-	return p;
-}
-
-
-/* Check our protocol family table for this family and return its socket */
-int get_socket_for_af(int af)
-{
-	struct aftype **afp;
-
-	if (!sVafinit)
-		afinit();
-
-	afp = aftypes;
-	while (*afp != NULL) {
-		if ((*afp)->af == af)
-			return (*afp)->fd;
-		afp++;
-	}
-	return -1;
-}
+//void afinit()
+//{
+//	unspec_aftype.title = "UNSPEC";
+//#if HAVE_AFUNIX
+//	unix_aftype.title = "UNIX Domain";
+//#endif
+//#if HAVE_AFINET
+//	inet_aftype.title = "DARPA Internet";
+//#endif
+//#if HAVE_AFINET6
+//	inet6_aftype.title = "IPv6";
+//#endif
+//#if HAVE_AFAX25
+//	ax25_aftype.title = "AMPR AX.25";
+//#endif
+//#if HAVE_AFNETROM
+//	netrom_aftype.title = "AMPR NET/ROM";
+//#endif
+//#if HAVE_AFIPX
+//	ipx_aftype.title = "Novell IPX";
+//#endif
+//#if HAVE_AFATALK
+//	ddp_aftype.title = "Appletalk DDP";
+//#endif
+//#if HAVE_AFECONET
+//	ec_aftype.title = "Econet";
+//#endif
+//#if HAVE_AFX25
+//	x25_aftype.title = "CCITT X.25";
+//#endif
+//#if HAVE_AFROSE
+//	rose_aftype.title = "AMPR ROSE";
+//#endif
+//#if HAVE_AFASH
+//	ash_aftype.title = "Ash";
+//#endif
+//	sVafinit = 1;
+//}
 
 
 
-int sockets_open(int family)
-{
-	struct aftype **aft;
-	int sfd = -1;
-	static int force = -1;
 
-	if (force < 0) {
-		force = 0;
-		if (kernel_version() < KRELEASE(2, 1, 0))
-			force = 1;
-		if (access("/proc/net", R_OK))
-			force = 1;
-	}
-	for (aft = aftypes; *aft; aft++) {
-		struct aftype *af = *aft;
-		int type = SOCK_DGRAM;
-		if (af->af == AF_UNSPEC)
-			continue;
-		if (family && family != af->af)
-			continue;
-		if (af->fd != -1) {
-			sfd = af->fd;
-			continue;
-		}
-		/* Check some /proc file first to not stress kmod */
-		if (!family && !force && af->flag_file) {
-			if (access(af->flag_file, R_OK))
-				continue;
-		}
-#if HAVE_AFNETROM
-		if (af->af == AF_NETROM)
-            type = SOCK_SEQPACKET;
-#endif
-#if HAVE_AFX25
-		if (af->af == AF_X25)
-           type = SOCK_SEQPACKET;
-#endif
-		af->fd = socket(af->af, type, 0);
-		if (af->fd >= 0)
-			sfd = af->fd;
-	}
-	if (sfd < 0)
-		fprintf(stderr, "No usable address families found.\n");
-	return sfd;
-}
+///* Check our protocol family table for this family and return its socket */
+//int get_socket_for_af(int af)
+//{
+//	struct aftype **afp;
+//
+//	if (!sVafinit)
+//		afinit();
+//
+//	afp = aftypes;
+//	while (*afp != NULL) {
+//		if ((*afp)->af == af)
+//			return (*afp)->fd;
+//		afp++;
+//	}
+//	return -1;
+//}
+//
+//
+//
+//int sockets_open(int family)
+//{
+//	struct aftype **aft;
+//	int sfd = -1;
+//	static int force = -1;
+//
+//	if (force < 0) {
+//		force = 0;
+//		if (kernel_version() < KRELEASE(2, 1, 0))
+//			force = 1;
+//		if (access("/proc/net", R_OK))
+//			force = 1;
+//	}
+//	for (aft = aftypes; *aft; aft++) {
+//		struct aftype *af = *aft;
+//		int type = SOCK_DGRAM;
+//		if (af->af == AF_UNSPEC)
+//			continue;
+//		if (family && family != af->af)
+//			continue;
+//		if (af->fd != -1) {
+//			sfd = af->fd;
+//			continue;
+//		}
+//		/* Check some /proc file first to not stress kmod */
+//		if (!family && !force && af->flag_file) {
+//			if (access(af->flag_file, R_OK))
+//				continue;
+//		}
+//#if HAVE_AFNETROM
+//		if (af->af == AF_NETROM)
+//            type = SOCK_SEQPACKET;
+//#endif
+//#if HAVE_AFX25
+//		if (af->af == AF_X25)
+//           type = SOCK_SEQPACKET;
+//#endif
+//		af->fd = socket(af->af, type, 0);
+//		if (af->fd >= 0)
+//			sfd = af->fd;
+//	}
+//	if (sfd < 0)
+//		fprintf(stderr, "No usable address families found.\n");
+//	return sfd;
+//}
 
