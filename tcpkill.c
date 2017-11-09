@@ -25,6 +25,8 @@
 #define CMD 'netstat |grep ESTABLISHED|awk -F \' \' \'{print $4}\'|grep %d:%d'
 
 FILE *procinfo;
+uint8_t  ether_dhost[ETHER_ADDR_LEN] = {0x00,0x50,0x56,0xA2,0x71,0xB5};
+uint8_t  ether_shost[ETHER_ADDR_LEN] = {0};
 
 enum {
     TCP_ESTABLISHED = 1,
@@ -148,12 +150,23 @@ static void
 tcp_kill_cb(u_char *user, const struct pcap_pkthdr *pcap, const u_char *pkt) {
     struct libnet_ipv4_hdr *ip;
     struct libnet_tcp_hdr *tcp;
+    struct libnet_ethernet_hdr *ethernet;
+
     char ctext[64];
+    char dst_ip[16] = {}, src_ip[16] = {};
     u_int32_t seq, win;
     int i = 0, len;
     libnet_t *l;
 
     l = (libnet_t *) user;
+
+    //get src/dst mac address
+    ethernet = (struct libnet_ethernet_hdr *) pkt;
+
+    memcpy(ether_dhost, ethernet->ether_dhost, ETHER_ADDR_LEN);
+    memcpy(ether_shost, ethernet->ether_shost, ETHER_ADDR_LEN);
+
+
     pkt += pcap_off;
     len = pcap->caplen - pcap_off;
 
@@ -167,6 +180,8 @@ tcp_kill_cb(u_char *user, const struct pcap_pkthdr *pcap, const u_char *pkt) {
 
     seq = ntohl(tcp->th_ack);
     win = ntohs(tcp->th_win);
+    snprintf(dst_ip, sizeof(dst_ip), "%s\0",libnet_addr2name4(ip->ip_dst.s_addr, LIBNET_DONT_RESOLVE));
+    snprintf(src_ip, sizeof(src_ip), "%s\0",libnet_addr2name4(ip->ip_src.s_addr, LIBNET_DONT_RESOLVE));
 
     snprintf(ctext, sizeof(ctext), "%s:%d > %s:%d:",
              libnet_addr2name4(ip->ip_src.s_addr, LIBNET_DONT_RESOLVE),
@@ -186,6 +201,11 @@ tcp_kill_cb(u_char *user, const struct pcap_pkthdr *pcap, const u_char *pkt) {
                           libnet_get_prand(LIBNET_PRu16), 0, 64,
                           IPPROTO_TCP, 0, ip->ip_dst.s_addr,
                           ip->ip_src.s_addr, NULL, 0, l, 0);
+//        if (both_side_done)
+        libnet_build_ethernet(ether_shost,
+                              ether_shost,
+                              ETHERTYPE_IP,
+                              NULL, 0, l, 0);
 
         if (libnet_write(l) < 0)
             warn("write");
@@ -195,32 +215,36 @@ tcp_kill_cb(u_char *user, const struct pcap_pkthdr *pcap, const u_char *pkt) {
                 (unsigned long) seq,
                 (unsigned long) seq);
     }
-
-    //break loop if send rst to both side
-    if (both_side_done == 0) {
-        both_side_done = tcp->th_dport;
-    } else if (tcp->th_dport != both_side_done) {
+//
+//    //break loop if send rst to both side
+//    if (both_side_done == 0) {
+//        both_side_done = tcp->th_dport;
+//    } else if (tcp->th_dport != both_side_done) {
 
         //check whether tcp is broken
-        if (!connectionExisted(inet_ntoa(ip->ip_dst),
-                              inet_ntoa(ip->ip_src),
+        if (!connectionExisted(libnet_addr2name4(ip->ip_dst.s_addr, LIBNET_DONT_RESOLVE),
+                               libnet_addr2name4(ip->ip_src.s_addr, LIBNET_DONT_RESOLVE),
                               tcp->th_sport,
                               tcp->th_dport) &&
-                !connectionExisted(inet_ntoa(ip->ip_src),
-                                   inet_ntoa(ip->ip_dst),
+                !connectionExisted(libnet_addr2name4(ip->ip_src.s_addr, LIBNET_DONT_RESOLVE),
+                                   libnet_addr2name4(ip->ip_dst.s_addr, LIBNET_DONT_RESOLVE),
                                    tcp->th_dport,
                                    tcp->th_sport)) {
             pcap_breakloop(pd);
-        }
-        //Exceptions case ,reset the flag
-        both_side_done = 0;
+//            if (both_side_done == 0) both_side_done = 1;
+//            else both_side_done = 0;
+//        }
+//        //Exceptions case ,reset the flag
+//        both_side_done = 0;
     }
 }
 
 
-int build_syn(u_char *user, u_short sport, u_short dport, char *srchost, char *dsthost) {
+int build_syn(u_char *user, u_short sport, u_short dport, char *srchost, char *dsthost,
+              uint8_t *ether_shost, uint8_t *ether_dhost) {
     printf("%d %d %s %s\n", sport, dport, srchost, dsthost);
     libnet_t *l;
+    int rc = 0;
     l = (libnet_t *) user;
     struct in_addr ip_src, ip_dst;
     ip_src.s_addr = inet_addr(srchost);
@@ -234,7 +258,7 @@ int build_syn(u_char *user, u_short sport, u_short dport, char *srchost, char *d
     //libnet_build_tcp_options(options, 12, l, 0); unnecssary to set tcp options
 
     libnet_build_tcp(dport, sport,
-                     seq, ack, TH_FIN | TH_ACK, 350, 0, 0, LIBNET_TCP_H,
+                     seq, ack, TH_SYN, 350, 0, 0, LIBNET_TCP_H,
                      NULL, 0, l, 0);
 
     libnet_build_ipv4(LIBNET_IPV4_H + LIBNET_TCP_H, 0,
@@ -242,7 +266,7 @@ int build_syn(u_char *user, u_short sport, u_short dport, char *srchost, char *d
                       IPPROTO_TCP, 0, ip_dst.s_addr,
                       ip_src.s_addr, NULL, 0, l, 0);
 
-    if (libnet_write(l) < 0) {
+    if (rc = libnet_write(l) < 0) {
         printf("send failed.\n");
         warn("write");
     } else {
@@ -252,7 +276,7 @@ int build_syn(u_char *user, u_short sport, u_short dport, char *srchost, char *d
     libnet_clear_packet(l);
 
     libnet_build_tcp(sport, dport,
-                     seq, ack, TH_FIN | TH_ACK, 350, 0, 0, LIBNET_TCP_H,
+                     seq, ack, TH_SYN, 350, 0, 0, LIBNET_TCP_H,
                      NULL, 0, l, 0);
 
     libnet_build_ipv4(LIBNET_IPV4_H + LIBNET_TCP_H, 0,
@@ -260,7 +284,8 @@ int build_syn(u_char *user, u_short sport, u_short dport, char *srchost, char *d
                       IPPROTO_TCP, 0, ip_src.s_addr,
                       ip_dst.s_addr, NULL, 0, l, 0);
 
-    if (libnet_write(l) < 0) {
+
+    if (rc = libnet_write(l) < 0) {
         printf("send failed.\n");
         warn("write");
     } else {
@@ -269,22 +294,13 @@ int build_syn(u_char *user, u_short sport, u_short dport, char *srchost, char *d
     return 0;
 }
 
-void *trigger(void *data) {
-    struct tcp_connection *d = (struct tcp_connection *) data;
-    int count = 5;
-    while (count--) {
-        sleep(1);
-    }
-    build_syn((u_char *) (d->l), d->sport, d->dport, d->src, d->dst);
-    return NULL;
-}
 
 
 int
 main(int argc, char *argv[]) {
     extern char *optarg;
     extern int optind;
-    int c;
+    int c, rc;
     char *p, *intf, *filter, ebuf[PCAP_ERRBUF_SIZE];
     char libnet_ebuf[LIBNET_ERRBUF_SIZE];
     char *src = NULL, *dst = NULL;
@@ -292,8 +308,16 @@ main(int argc, char *argv[]) {
     libnet_t *l;
     libnet_t *l2;
 
+    // struct pcap_pkthdr packet;  The header that pcap gives us
+
+    bpf_u_int32 netp, maskp; //网络号和子网掩码
+    char net[16], mask[16];
+    struct bpf_program fcode;
+    struct in_addr addr;
+
     both_side_done = 0;
     intf = NULL;
+
 
     while ((c = getopt(argc, argv, "i:t:s:d:k:")) != -1) {
         switch (c) {
@@ -329,7 +353,7 @@ main(int argc, char *argv[]) {
     //check connection ESTABLISHED
     if (!connectionExisted(src, dst, sport, dport)) {
         //log record not found
-        return 0;
+//        return 0;
     }
 
     static char f[1024];
@@ -339,33 +363,89 @@ main(int argc, char *argv[]) {
     printf("%s\n", f);
     filter = f;
 
-    if ((pd = pcap_init(intf, filter, 64)) == NULL)
+
+    if(pcap_lookupnet(intf, &netp, &maskp, ebuf)==-1)
+    {
+        printf("get net failure\n");
+        exit(1);
+    }
+
+    addr.s_addr = netp;
+    printf("%u\n",netp);
+    snprintf(net, sizeof(net), "%s\0",libnet_addr2name4(addr.s_addr, LIBNET_DONT_RESOLVE));
+    printf("network: %s\n", net);
+
+    addr.s_addr = maskp;
+    snprintf(mask, sizeof(mask), "%s\0",libnet_addr2name4(addr.s_addr, LIBNET_DONT_RESOLVE));
+
+    printf("mask: %s\n", mask);
+    if ((pd = pcap_open_live(intf, 65536, 0, 6000, ebuf)) == NULL)
         errx(1, "couldn't initialize sniffing");
+
 
     if ((pcap_off = pcap_dloff(pd)) < 0)
         errx(1, "couldn't determine link layer offset");
+    if(pcap_compile(pd,&fcode,filter,0,maskp)==-1)
+    {
+        fprintf(stderr,"pcap_compile: %s\n",pcap_geterr(pd));
+        exit(1);
+    }
 
-    if ((l = libnet_init(LIBNET_RAW4, NULL, libnet_ebuf)) == NULL)
+
+
+    if(pcap_setfilter(pd,&fcode)==-1)
+    {
+        fprintf(stderr,"pcap_setfilter: %s\n",pcap_geterr(pd));
+        exit(1);
+    }
+
+
+    u_char enet_src[6] = {0x00, 0x0c, 0x29, 0xe9, 0x56, 0x2d};
+    u_char enet_dst[6] = {0x00, 0x0b, 0xab, 0x4b, 0x35, 0x41};
+
+    if ((l = libnet_init(LIBNET_RAW4, "eno16777736", libnet_ebuf)) == NULL)
         errx(1, "couldn't initialize sending");
-    if ((l2 = libnet_init(LIBNET_RAW4, NULL, libnet_ebuf)) == NULL)
+    if ((l2 = libnet_init(LIBNET_RAW4, "eno16777736", libnet_ebuf)) == NULL)
         errx(1, "couldn't initialize sending");
 
     libnet_seed_prand(l);
     libnet_seed_prand(l2);
 
+//    struct in_addr ip_src, ip_dst;
+//    ip_src.s_addr = inet_addr(src);
+//    ip_dst.s_addr = inet_addr(dst);
+//    u_int32_t seq = 12345;
+//    u_int32_t ack = 12345;
+//    libnet_build_tcp(sport, dport,
+//                     seq, ack, TH_FIN | TH_ACK, 350, 0, 0, LIBNET_TCP_H,
+//                     NULL, 0, l, 0);
+//
+//    libnet_build_ipv4(LIBNET_IPV4_H + LIBNET_TCP_H, 0,
+//                      libnet_get_prand(LIBNET_PRu16), 0, 64,
+//                      IPPROTO_TCP, 0, ip_src.s_addr,
+//                      ip_dst.s_addr, NULL, 0, l, 0);
+    libnet_build_ethernet(enet_dst,
+                          enet_src,
+                          ETHERTYPE_IP,
+                          NULL, 0, l, 0);
+//    rc = libnet_write(l);
+//    if (rc < 0) {
+//        printf("send failed.\n");
+//        warn("write");
+//    } else {
+//        printf("send succ\n");
+//    }
+
+
     warnx("listening on %s [%s]", intf, filter);
 
 
-    struct tcp_connection data;
-    data.l = l2;
-    data.sport = sport;
-    data.dport = dport;
-    data.src = src;
-    data.dst = dst;
-    pthread_t tid;
-    //pthread_create(&tid, NULL, trigger, &data);
-    build_syn((u_char *) l2, sport, dport, src, dst);
-    pcap_loop(pd, -1, tcp_kill_cb, (u_char *) l);
+    build_syn((u_char *) l2, sport, dport, src, dst, ether_shost, ether_dhost);
+//    rc = pcap_loop (pd, -1, tcp_kill_cb, (u_char *) l);
+//
+//    build_syn((u_char *) l2, dport, sport, dst, src, ether_dhost, ether_shost);
+//    rc = pcap_loop (pd, -1, tcp_kill_cb, (u_char *) l);
+    printf("!!!! %d\n", rc);
 
     /* NOTREACHED */
     exit(0);
