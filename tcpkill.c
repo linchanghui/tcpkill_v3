@@ -177,7 +177,6 @@ tcp_kill_cb(u_char *user, const struct pcap_pkthdr *pcap, const u_char *pkt) {
     tcp = (struct libnet_tcp_hdr *) (pkt + (ip->ip_hl << 2));
     if (tcp->th_flags & (TH_SYN | TH_FIN | TH_RST))
         return;
-
     seq = ntohl(tcp->th_ack);
     win = ntohs(tcp->th_win);
     snprintf(dst_ip, sizeof(dst_ip), "%s\0",libnet_addr2name4(ip->ip_dst.s_addr, LIBNET_DONT_RESOLVE));
