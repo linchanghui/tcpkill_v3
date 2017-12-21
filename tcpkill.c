@@ -445,7 +445,8 @@ main(int argc, char *argv[]) {
 //    build_syn((u_char *) l2, dport, sport, dst, src, ether_dhost, ether_shost);
 //    rc = pcap_loop (pd, -1, tcp_kill_cb, (u_char *) l);
     printf("!!!! %d\n", rc);
-
+    libnet_destroy(l);
+    libnet_destroy(l2);
     /* NOTREACHED */
     exit(0);
 }
